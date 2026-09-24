@@ -15,7 +15,7 @@ const TABS: { id: Tab; label: string; icon: string }[] = [
 ]
 
 export default function App() {
-  const { data, setData, setPrayer, updateSettings } = useAppData()
+  const { data, setData, setPrayer, toggleExtra, updateSettings } = useAppData()
   const now = useNow()
   const [tab, setTab] = useState<Tab>(data.settings.location ? 'today' : 'settings')
 
@@ -26,9 +26,9 @@ export default function App() {
       </header>
       <main>
         {tab === 'today' && (
-          <TodayView data={data} now={now} setPrayer={setPrayer} goToSettings={() => setTab('settings')} />
+          <TodayView data={data} now={now} setPrayer={setPrayer} toggleExtra={toggleExtra} goToSettings={() => setTab('settings')} />
         )}
-        {tab === 'history' && <HistoryView data={data} now={now} setPrayer={setPrayer} />}
+        {tab === 'history' && <HistoryView data={data} now={now} setPrayer={setPrayer} toggleExtra={toggleExtra} />}
         {tab === 'stats' && <StatsView data={data} now={now} />}
         {tab === 'settings' && <SettingsView data={data} updateSettings={updateSettings} replaceData={setData} />}
       </main>

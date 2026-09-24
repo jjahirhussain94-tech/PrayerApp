@@ -1,17 +1,22 @@
 import { computeTimes, suggestStatus } from '../lib/prayerTimes'
-import type { AppData, PrayerLog, PrayerName } from '../lib/types'
+import type { AppData, ExtraPrayer, PrayerLog, PrayerName } from '../lib/types'
 import { PRAYERS } from '../lib/types'
+import { ExtrasCard } from './ExtrasCard'
 import { PrayerCard } from './PrayerCard'
 
-interface Props {
+export interface DayActions {
+  setPrayer: (date: string, prayer: PrayerName, log: PrayerLog | undefined) => void
+  toggleExtra: (date: string, extra: ExtraPrayer) => void
+}
+
+interface Props extends DayActions {
   date: string
   data: AppData
   now: Date
   nextPrayer?: PrayerName
-  setPrayer: (date: string, prayer: PrayerName, log: PrayerLog | undefined) => void
 }
 
-export function DayLogger({ date, data, now, nextPrayer, setPrayer }: Props) {
+export function DayLogger({ date, data, now, nextPrayer, setPrayer, toggleExtra }: Props) {
   const times = computeTimes(date, data.settings)
   const day = data.logs[date] ?? {}
   return (
@@ -28,6 +33,7 @@ export function DayLogger({ date, data, now, nextPrayer, setPrayer }: Props) {
           onChange={(log) => setPrayer(date, p, log)}
         />
       ))}
+      <ExtrasCard done={data.extras[date] ?? []} onToggle={(e) => toggleExtra(date, e)} />
     </div>
   )
 }

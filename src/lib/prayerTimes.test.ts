@@ -6,6 +6,7 @@ const settings: Settings = {
   location: { latitude: 51.5074, longitude: -0.1278 },
   method: 'MuslimWorldLeague',
   madhab: 'shafi',
+  reminders: { enabled: true, atStart: true, nudgeMinutes: 30, hadith: true },
 }
 
 describe('prayer times', () => {

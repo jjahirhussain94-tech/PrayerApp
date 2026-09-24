@@ -1,8 +1,8 @@
 import { useState } from 'react'
 import { getSurah } from '../data/surahs'
 import { formatTime } from '../lib/date'
-import type { PrayerLog, PrayerName, PrayerStatus } from '../lib/types'
-import { PRAYER_LABELS, STATUS_LABELS } from '../lib/types'
+import type { PrayerLog, PrayerName, PrayerStatus, Reason } from '../lib/types'
+import { PRAYER_LABELS, REASON_LABELS, STATUS_LABELS } from '../lib/types'
 import { SurahPicker } from './SurahPicker'
 
 interface Props {
@@ -15,14 +15,32 @@ interface Props {
   onChange: (log: PrayerLog | undefined) => void
 }
 
-const STATUSES: PrayerStatus[] = ['on_time', 'late', 'qada', 'missed']
+const STATUSES: PrayerStatus[] = ['on_time', 'late', 'qada', 'missed', 'excused']
+const REASONS = Object.keys(REASON_LABELS) as Reason[]
+
+/** ISO string → value for <input type="datetime-local"> in local time. */
+function toLocalInput(iso: string): string {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
 
 export function PrayerCard({ prayer, time, log, isNext, notYet, suggest, onChange }: Props) {
   const [picking, setPicking] = useState(false)
-  const update = (patch: Partial<PrayerLog>) =>
-    onChange({ status: 'on_time', jamaah: false, surahs: [], ...log, ...patch, loggedAt: new Date().toISOString() })
+  const update = (patch: Partial<PrayerLog>) => {
+    const next: PrayerLog = { status: 'on_time', jamaah: false, surahs: [], ...log, ...patch, loggedAt: new Date().toISOString() }
+    // Late and qada prayers remember when they were actually offered; default to now.
+    if ((next.status === 'late' || next.status === 'qada') && !next.prayedAt) next.prayedAt = new Date().toISOString()
+    if (next.status === 'on_time' || next.status === 'excused') {
+      delete next.prayedAt
+      delete next.reason
+    }
+    if (next.status === 'missed') delete next.prayedAt
+    onChange(next)
+  }
 
-  const prayed = log && log.status !== 'missed'
+  const prayed = log && (log.status === 'on_time' || log.status === 'late' || log.status === 'qada')
+  const needsReason = log && (log.status === 'late' || log.status === 'qada' || log.status === 'missed')
 
   return (
     <article className={`prayer-card${isNext ? ' next' : ''}${prayed ? ' done' : ''}`}>
@@ -50,7 +68,7 @@ export function PrayerCard({ prayer, time, log, isNext, notYet, suggest, onChang
 
       {log && (
         <div className="prayer-body">
-          <div className="segmented" role="radiogroup" aria-label="Status">
+          <div className="segmented five" role="radiogroup" aria-label="Status">
             {STATUSES.map((s) => (
               <button
                 key={s}
@@ -63,6 +81,47 @@ export function PrayerCard({ prayer, time, log, isNext, notYet, suggest, onChang
               </button>
             ))}
           </div>
+
+          {(log.status === 'late' || log.status === 'qada') && log.prayedAt && (
+            <label className="inline-field">
+              Prayed at
+              <input
+                type="datetime-local"
+                value={toLocalInput(log.prayedAt)}
+                onChange={(e) => e.target.value && update({ prayedAt: new Date(e.target.value).toISOString() })}
+              />
+            </label>
+          )}
+
+          {needsReason && (
+            <div>
+              <span className="muted small">{log.status === 'missed' ? 'Why was it missed?' : 'What made it late?'}</span>
+              <div className="chips">
+                {REASONS.map((r) => (
+                  <button
+                    key={r}
+                    className={`chip choice${log.reason === r ? ' selected' : ''}`}
+                    aria-pressed={log.reason === r}
+                    onClick={() => update({ reason: log.reason === r ? undefined : r })}
+                  >
+                    {REASON_LABELS[r]}
+                  </button>
+                ))}
+              </div>
+              <input
+                className="note"
+                placeholder="Add a note (optional)"
+                value={log.note ?? ''}
+                onChange={(e) => update({ note: e.target.value || undefined })}
+              />
+            </div>
+          )}
+
+          {log.status === 'missed' && (
+            <button className="small" onClick={() => update({ status: 'qada', prayedAt: new Date().toISOString() })}>
+              I’ve made it up now
+            </button>
+          )}
 
           {prayed && (
             <>

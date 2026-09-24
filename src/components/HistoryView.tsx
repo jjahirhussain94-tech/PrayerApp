@@ -1,22 +1,66 @@
 import { useState } from 'react'
 import { addDays, dateKey, dateRange, formatDay, parseKey } from '../lib/date'
-import type { AppData, PrayerLog, PrayerName } from '../lib/types'
+import type { AppData } from '../lib/types'
 import { PRAYER_LABELS, PRAYERS, STATUS_LABELS } from '../lib/types'
-import { DayLogger } from './DayLogger'
+import { DayLogger, type DayActions } from './DayLogger'
 
-interface Props {
+interface Props extends DayActions {
   data: AppData
   now: Date
-  setPrayer: (date: string, prayer: PrayerName, log: PrayerLog | undefined) => void
 }
 
-export function HistoryView({ data, now, setPrayer }: Props) {
+export function HistoryView({ data, now, ...actions }: Props) {
   const today = dateKey(now)
   const [date, setDate] = useState(() => addDays(today, -1))
+  const [showAllOwed, setShowAllOwed] = useState(false)
   const recent = dateRange(addDays(today, -13), today).reverse()
+  const owed = Object.keys(data.logs)
+    .sort()
+    .reverse()
+    .flatMap((d) => PRAYERS.filter((p) => data.logs[d][p]?.status === 'missed').map((p) => ({ date: d, prayer: p })))
 
   return (
     <section>
+      {owed.length > 0 && (
+        <div className="card">
+          <div className="card-head">
+            <h2>Prayers to make up</h2>
+            <span className="muted small">{owed.length} owed</span>
+          </div>
+          <p className="muted small">When you pray a missed prayer, mark it here and it will be logged as qada.</p>
+          <ul className="owed">
+            {(showAllOwed ? owed : owed.slice(0, 5)).map(({ date: d, prayer: p }) => (
+              <li key={`${d}-${p}`}>
+                <span>
+                  <strong>{PRAYER_LABELS[p]}</strong>{' '}
+                  <span className="muted">
+                    {parseKey(d).toLocaleDateString([], { weekday: 'short', day: 'numeric', month: 'short' })}
+                  </span>
+                </span>
+                <button
+                  className="small"
+                  onClick={() =>
+                    actions.setPrayer(d, p, {
+                      ...data.logs[d][p]!,
+                      status: 'qada',
+                      prayedAt: new Date().toISOString(),
+                      loggedAt: new Date().toISOString(),
+                    })
+                  }
+                >
+                  Made up
+                </button>
+              </li>
+            ))}
+          </ul>
+          {owed.length > 5 && (
+            <button className="ghost small" onClick={() => setShowAllOwed(!showAllOwed)}>
+              {showAllOwed ? 'Show fewer' : `Show all ${owed.length}`}
+            </button>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <h2>Last 14 days</h2>
         <p className="muted small">Tap a day to edit it.</p>
@@ -55,7 +99,7 @@ export function HistoryView({ data, now, setPrayer }: Props) {
         </button>
       </div>
       <h2 className="day-title">{formatDay(date)}</h2>
-      <DayLogger date={date} data={data} now={now} setPrayer={setPrayer} />
+      <DayLogger date={date} data={data} now={now} {...actions} />
     </section>
   )
 }

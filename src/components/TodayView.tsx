@@ -1,23 +1,23 @@
 import { dateKey, formatDay, formatDuration, formatTime } from '../lib/date'
 import { computeTimes, nextPrayer, qiblaDirection } from '../lib/prayerTimes'
-import type { AppData, PrayerLog, PrayerName } from '../lib/types'
+import type { AppData } from '../lib/types'
 import { PRAYER_LABELS, PRAYERS } from '../lib/types'
-import { DayLogger } from './DayLogger'
+import { DayLogger, type DayActions } from './DayLogger'
+import { ReminderCard } from './ReminderCard'
 
-interface Props {
+interface Props extends DayActions {
   data: AppData
   now: Date
-  setPrayer: (date: string, prayer: PrayerName, log: PrayerLog | undefined) => void
   goToSettings: () => void
 }
 
-export function TodayView({ data, now, setPrayer, goToSettings }: Props) {
+export function TodayView({ data, now, goToSettings, ...actions }: Props) {
   const today = dateKey(now)
   const next = nextPrayer(today, data.settings, now)
   const times = computeTimes(today, data.settings)
   const loc = data.settings.location
   const day = data.logs[today] ?? {}
-  const prayedCount = PRAYERS.filter((p) => day[p] && day[p]!.status !== 'missed').length
+  const prayedCount = PRAYERS.filter((p) => ['on_time', 'late', 'qada'].includes(day[p]?.status ?? '')).length
   // Only highlight "next" when it's today's prayer (after Isha it is tomorrow's Fajr).
   const nextToday = next && times && next.at.getDate() === now.getDate() ? next.prayer : undefined
 
@@ -61,7 +61,8 @@ export function TodayView({ data, now, setPrayer, goToSettings }: Props) {
           </p>
         )}
       </div>
-      <DayLogger date={today} data={data} now={now} nextPrayer={nextToday} setPrayer={setPrayer} />
+      <ReminderCard data={data} today={today} now={now} nextPrayer={next?.prayer} />
+      <DayLogger date={today} data={data} now={now} nextPrayer={nextToday} {...actions} />
     </section>
   )
 }
