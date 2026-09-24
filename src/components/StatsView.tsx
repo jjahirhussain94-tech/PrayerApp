@@ -4,7 +4,7 @@ import { addDays, dateKey, parseKey } from '../lib/date'
 import { duePrayers } from '../lib/prayerTimes'
 import { computeStats, firstLoggedDate } from '../lib/stats'
 import type { AppData, PrayerStatus } from '../lib/types'
-import { PRAYER_LABELS, PRAYERS, STATUS_LABELS } from '../lib/types'
+import { EXTRA_INFO, EXTRAS, PRAYER_LABELS, PRAYERS, REASON_LABELS, STATUS_LABELS } from '../lib/types'
 
 const RANGES = [
   { label: '7 days', days: 7 },
@@ -13,20 +13,20 @@ const RANGES = [
   { label: 'All time', days: 0 },
 ]
 
-const STACK: PrayerStatus[] = ['on_time', 'late', 'qada', 'missed']
+const STACK = ['on_time', 'late', 'qada', 'missed'] as const satisfies PrayerStatus[]
 const pct = (x: number) => `${Math.round(x * 100)}%`
 
 export function StatsView({ data, now }: { data: AppData; now: Date }) {
   const [range, setRange] = useState(30)
   const [hover, setHover] = useState<number | null>(null)
   const today = dateKey(now)
-  const first = firstLoggedDate(data.logs)
+  const first = [firstLoggedDate(data.logs), Object.keys(data.extras).sort()[0]].filter(Boolean).sort()[0]
 
   // `now` ticks every second; recomputing once a minute is plenty.
   const minute = Math.floor(now.getTime() / 60000)
   const stats = useMemo(() => {
     const start = range ? addDays(today, -(range - 1)) : (first ?? today)
-    return computeStats(data.logs, start, today, duePrayers(today, data.settings, new Date(minute * 60000)))
+    return computeStats(data.logs, start, today, duePrayers(today, data.settings, new Date(minute * 60000)), data.extras)
   }, [data, range, today, first, minute])
 
   if (!first) {
@@ -58,6 +58,8 @@ export function StatsView({ data, now }: { data: AppData; now: Date }) {
         <Tile label="On time" value={pct(stats.onTimeRate)} sub={`${stats.breakdown.on_time} prayers`} />
         <Tile label="Current streak" value={`${stats.currentStreak}`} sub={`days · best ${stats.bestStreak}`} />
         <Tile label="In congregation" value={pct(stats.jamaahRate)} sub={`${stats.breakdown.jamaah} prayers`} />
+        <Tile label="To make up" value={`${stats.owed}`} sub="missed, not yet prayed" />
+        <Tile label="Sunnah rak'ahs" value={stats.extras.rawatibPerDay.toFixed(1)} sub="per day, of 12" />
         <Tile label="Surahs recited" value={`${stats.uniqueSurahs}`} sub="of 114 different" />
         <Tile label="Ayahs recited" value={stats.ayahsRecited.toLocaleString()} sub={`${stats.totalRecitations} recitations`} />
       </div>
@@ -145,6 +147,41 @@ export function StatsView({ data, now }: { data: AppData; now: Date }) {
             </tbody>
           </table>
         </details>
+      </div>
+
+      <div className="card">
+        <h2>Why prayers were late or missed</h2>
+        {stats.reasons.length === 0 ? (
+          <p className="muted">When you log a late or missed prayer, add a reason to see patterns here.</p>
+        ) : (
+          <ul className="bars">
+            {stats.reasons.map(({ reason, count }) => (
+              <li key={reason}>
+                <span className="bar-label">{REASON_LABELS[reason]}</span>
+                <span className="bar-track">
+                  <span className="bar" style={{ width: `${(count / stats.reasons[0].count) * 100}%` }} />
+                </span>
+                <span className="bar-value">{count}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="card">
+        <h2>Extra prayers</h2>
+        <p className="muted small">Days offered, out of {stats.days}</p>
+        <ul className="bars">
+          {EXTRAS.map((e) => (
+            <li key={e}>
+              <span className="bar-label">{EXTRA_INFO[e].label}</span>
+              <span className="bar-track">
+                <span className="bar" style={{ width: `${(stats.extras.counts[e] / stats.days) * 100}%` }} />
+              </span>
+              <span className="bar-value">{stats.extras.counts[e]}</span>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <div className="card">

@@ -1,11 +1,38 @@
-import { useCallback, useEffect, useState } from 'react'
-import { loadData, saveData } from './storage'
-import type { AppData, PrayerLog, PrayerName, Settings } from './types'
+import { App as NativeApp } from '@capacitor/app'
+import { Capacitor } from '@capacitor/core'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { syncNotifications } from './notifications'
+import { loadData, loadNativeData, saveData } from './storage'
+import type { AppData, ExtraPrayer, PrayerLog, PrayerName, Settings } from './types'
 
 export function useAppData() {
   const [data, setData] = useState<AppData>(loadData)
+  const latest = useRef(data)
 
-  useEffect(() => saveData(data), [data])
+  // On iOS, Preferences is the durable copy; prefer it over the web view's storage.
+  useEffect(() => {
+    void loadNativeData().then((native) => native && setData(native))
+  }, [])
+
+  useEffect(() => {
+    latest.current = data
+    saveData(data)
+  }, [data])
+
+  // Reschedule reminders shortly after changes (e.g. logging a prayer cancels its nudge).
+  useEffect(() => {
+    const id = setTimeout(() => void syncNotifications(data).catch(() => {}), 1500)
+    return () => clearTimeout(id)
+  }, [data])
+
+  // Top up the rolling schedule whenever the app comes back to the foreground.
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return
+    const sub = NativeApp.addListener('appStateChange', ({ isActive }) => {
+      if (isActive) void syncNotifications(latest.current).catch(() => {})
+    })
+    return () => void sub.then((s) => s.remove())
+  }, [])
 
   const setPrayer = useCallback((date: string, prayer: PrayerName, log: PrayerLog | undefined) => {
     setData((d) => {
@@ -18,11 +45,21 @@ export function useAppData() {
     })
   }, [])
 
+  const toggleExtra = useCallback((date: string, extra: ExtraPrayer) => {
+    setData((d) => {
+      const current = d.extras[date] ?? []
+      const next = current.includes(extra) ? current.filter((e) => e !== extra) : [...current, extra]
+      const extras = { ...d.extras, [date]: next }
+      if (next.length === 0) delete extras[date]
+      return { ...d, extras }
+    })
+  }, [])
+
   const updateSettings = useCallback((patch: Partial<Settings>) => {
     setData((d) => ({ ...d, settings: { ...d.settings, ...patch } }))
   }, [])
 
-  return { data, setData, setPrayer, updateSettings }
+  return { data, setData, setPrayer, toggleExtra, updateSettings }
 }
 
 /** Re-renders on an interval so countdowns and "today" stay current. */

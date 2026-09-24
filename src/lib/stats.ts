@@ -1,7 +1,7 @@
 import { getSurah } from '../data/surahs'
 import { dateRange } from './date'
-import type { DayLog, PrayerName, PrayerStatus } from './types'
-import { PRAYERS } from './types'
+import type { DayLog, ExtraPrayer, PrayerName, PrayerStatus, Reason } from './types'
+import { EXTRA_INFO, EXTRAS, PRAYERS } from './types'
 
 export interface PrayerBreakdown {
   due: number
@@ -18,8 +18,19 @@ export interface DayPoint {
   due: number
 }
 
+export interface ExtraStats {
+  counts: Record<ExtraPrayer, number>
+  /** Average sunnah rawatib rak'ahs per day (out of 12). */
+  rawatibPerDay: number
+}
+
 export interface Stats {
   days: number
+  /** Why prayers were late or missed, most common first. */
+  reasons: { reason: Reason; count: number }[]
+  /** Prayers marked missed in the range that haven't been made up. */
+  owed: number
+  extras: ExtraStats
   breakdown: PrayerBreakdown
   perPrayer: Record<PrayerName, PrayerBreakdown>
   prayed: number
@@ -40,7 +51,7 @@ function emptyBreakdown(): PrayerBreakdown {
 }
 
 function isPrayed(status: PrayerStatus | undefined): boolean {
-  return status !== undefined && status !== 'missed'
+  return status === 'on_time' || status === 'late' || status === 'qada'
 }
 
 /**
@@ -53,7 +64,12 @@ export function computeStats(
   start: string,
   end: string,
   dueOnEnd: readonly PrayerName[] = PRAYERS,
+  extras: Record<string, ExtraPrayer[]> = {},
 ): Stats {
+  const reasonMap = new Map<Reason, number>()
+  const extraCounts = Object.fromEntries(EXTRAS.map((e) => [e, 0])) as Record<ExtraPrayer, number>
+  let rawatibRakahs = 0
+  let owed = 0
   const breakdown = emptyBreakdown()
   const perPrayer = Object.fromEntries(PRAYERS.map((p) => [p, emptyBreakdown()])) as Record<
     PrayerName,
@@ -67,9 +83,15 @@ export function computeStats(
     const day = logs[date] ?? {}
     const due = date === end ? PRAYERS.filter((p) => dueOnEnd.includes(p) || day[p]) : PRAYERS
     let prayedToday = 0
+    let dueToday = 0
     for (const p of due) {
       const log = day[p]
-      const status: PrayerStatus = log?.status ?? 'missed'
+      if (log?.status === 'missed') owed++
+      if (log?.reason) reasonMap.set(log.reason, (reasonMap.get(log.reason) ?? 0) + 1)
+      // Excused prayers (e.g. during menstruation) aren't owed, so they're left out entirely.
+      if (log?.status === 'excused') continue
+      dueToday++
+      const status: Exclude<PrayerStatus, 'excused'> = log?.status ?? 'missed'
       for (const b of [breakdown, perPrayer[p]]) {
         b.due++
         b[status]++
@@ -78,12 +100,18 @@ export function computeStats(
       if (isPrayed(status)) prayedToday++
       for (const s of log?.surahs ?? []) surahMap.set(s, (surahMap.get(s) ?? 0) + 1)
     }
-    daily.push({ date, prayed: prayedToday, due: due.length })
+    daily.push({ date, prayed: prayedToday, due: dueToday })
+    for (const e of extras[date] ?? []) {
+      extraCounts[e]++
+      rawatibRakahs += EXTRA_INFO[e].rawatib ? (EXTRA_INFO[e].rakahs ?? 0) : 0
+    }
   }
 
   // A day counts toward a streak when all five are prayed. Today doesn't break a
   // streak while it is still incomplete.
-  const complete = dates.map((d) => PRAYERS.every((p) => isPrayed(logs[d]?.[p]?.status)))
+  const complete = dates.map((d) =>
+    PRAYERS.every((p) => isPrayed(logs[d]?.[p]?.status) || logs[d]?.[p]?.status === 'excused'),
+  )
   let bestStreak = 0
   let run = 0
   for (const c of complete) {
@@ -105,6 +133,9 @@ export function computeStats(
 
   return {
     days: dates.length,
+    reasons: [...reasonMap.entries()].map(([reason, count]) => ({ reason, count })).sort((a, b) => b.count - a.count),
+    owed,
+    extras: { counts: extraCounts, rawatibPerDay: dates.length ? rawatibRakahs / dates.length : 0 },
     breakdown,
     perPrayer,
     prayed,

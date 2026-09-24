@@ -1,8 +1,11 @@
+import { Capacitor } from '@capacitor/core'
+import { Geolocation } from '@capacitor/geolocation'
 import { useRef, useState } from 'react'
+import { notificationsSupported, requestPermission } from '../lib/notifications'
 import { METHOD_LABELS } from '../lib/prayerTimes'
 import { normalize } from '../lib/storage'
 import { dateKey } from '../lib/date'
-import type { AppData, MethodKey, Settings } from '../lib/types'
+import type { AppData, MethodKey, ReminderSettings, Settings } from '../lib/types'
 
 interface Props {
   data: AppData
@@ -19,24 +22,46 @@ export function SettingsView({ data, updateSettings, replaceData }: Props) {
   const [locating, setLocating] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
 
-  const useMyLocation = () => {
-    if (!navigator.geolocation) return setMessage('Location is not available in this browser.')
+  const [reminderMessage, setReminderMessage] = useState('')
+  const reminders = settings.reminders
+  const setReminders = (patch: Partial<ReminderSettings>) => updateSettings({ reminders: { ...reminders, ...patch } })
+
+  const toggleReminders = async (enabled: boolean) => {
+    if (enabled && !(await requestPermission())) {
+      setReminderMessage('Notifications are turned off for Salah Tracker. Allow them in iOS Settings → Notifications.')
+      return
+    }
+    setReminderMessage('')
+    setReminders({ enabled })
+  }
+
+  const applyPosition = (latitude: number, longitude: number) => {
+    const la = +latitude.toFixed(4)
+    const lo = +longitude.toFixed(4)
+    setLat(String(la))
+    setLng(String(lo))
+    updateSettings({ location: { latitude: la, longitude: lo, label: label || undefined } })
+    setMessage('Location updated.')
+  }
+
+  const locateMe = async () => {
     setLocating(true)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const la = +pos.coords.latitude.toFixed(4)
-        const lo = +pos.coords.longitude.toFixed(4)
-        setLat(String(la))
-        setLng(String(lo))
-        updateSettings({ location: { latitude: la, longitude: lo, label: label || undefined } })
-        setMessage('Location updated.')
-        setLocating(false)
-      },
-      (err) => {
-        setMessage(`Couldn't get your location: ${err.message}. Enter coordinates below instead.`)
-        setLocating(false)
-      },
-    )
+    try {
+      if (Capacitor.isNativePlatform()) {
+        const pos = await Geolocation.getCurrentPosition({ enableHighAccuracy: false, timeout: 15000 })
+        applyPosition(pos.coords.latitude, pos.coords.longitude)
+      } else {
+        if (!navigator.geolocation) throw new Error('location is not available in this browser')
+        const pos = await new Promise<GeolocationPosition>((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 15000 }),
+        )
+        applyPosition(pos.coords.latitude, pos.coords.longitude)
+      }
+    } catch (err) {
+      setMessage(`Couldn't get your location: ${(err as Error).message}. Enter coordinates below instead.`)
+    } finally {
+      setLocating(false)
+    }
   }
 
   const saveManual = () => {
@@ -72,7 +97,7 @@ export function SettingsView({ data, updateSettings, replaceData }: Props) {
       <div className="card">
         <h2>Location</h2>
         <p className="muted small">Prayer times are calculated on your device from your coordinates.</p>
-        <button className="primary" onClick={useMyLocation} disabled={locating}>
+        <button className="primary" onClick={() => void locateMe()} disabled={locating}>
           {locating ? 'Locating…' : '📍 Use my current location'}
         </button>
         <div className="form-grid">
@@ -91,6 +116,50 @@ export function SettingsView({ data, updateSettings, replaceData }: Props) {
         </div>
         <button onClick={saveManual}>Save location</button>
         {message && <p className="message">{message}</p>}
+      </div>
+
+      <div className="card">
+        <h2>Reminders</h2>
+        {notificationsSupported() ? (
+          <>
+            <label className="check">
+              <input type="checkbox" checked={reminders.enabled} onChange={(e) => void toggleReminders(e.target.checked)} />
+              Prayer reminders
+            </label>
+            {reminders.enabled && (
+              <>
+                <label className="check">
+                  <input
+                    type="checkbox"
+                    checked={reminders.atStart}
+                    onChange={(e) => setReminders({ atStart: e.target.checked })}
+                  />
+                  Notify when each prayer time begins
+                </label>
+                <label>
+                  Nudge if a prayer isn’t logged
+                  <select
+                    value={reminders.nudgeMinutes}
+                    onChange={(e) => setReminders({ nudgeMinutes: Number(e.target.value) })}
+                  >
+                    <option value={0}>Off</option>
+                    <option value={15}>15 minutes before its time ends</option>
+                    <option value={30}>30 minutes before its time ends</option>
+                    <option value={60}>1 hour before its time ends</option>
+                  </select>
+                </label>
+                <label className="check">
+                  <input type="checkbox" checked={reminders.hadith} onChange={(e) => setReminders({ hadith: e.target.checked })} />
+                  Include a hadith or ayah
+                </label>
+                {!settings.location && <p className="message">Set your location above so reminders can be scheduled.</p>}
+              </>
+            )}
+            {reminderMessage && <p className="message">{reminderMessage}</p>}
+          </>
+        ) : (
+          <p className="muted small">Reminders are available in the iPhone app.</p>
+        )}
       </div>
 
       <div className="card">
